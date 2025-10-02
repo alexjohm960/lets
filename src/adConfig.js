@@ -12,8 +12,9 @@ export const adSlots = {
     enabled: true,
   },
   floating: {
-    enabled: false,
+    enabled: true,
   },
 
 };
+
 
