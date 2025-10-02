@@ -1,0 +1,21 @@
+:root {
+  --primary-color: #8ab4f8;
+  --primary-color-light: rgba(138, 180, 248, 0.1);
+  --text-primary: #e8eaed;
+  --text-secondary: #9aa0a6;
+  --background-color: #202124;
+  --card-background: #2d2e30;
+  --border-color: #3c4043;
+  --shadow-color: rgba(0, 0, 0, 0.3);
+
+  --font-family-base: 'Inter', sans-serif;
+  --font-size-base: 1rem;
+  --line-height-base: 1.6;
+
+  --border-radius: 8px;
+  --container-max-width: 1200px;
+
+  --spacing-sm: 0.5rem;
+  --spacing-md: 1rem;
+  --spacing-lg: 2rem;
+}

@@ -1,0 +1,46 @@
+Bismillah...
+
+Assalamualaikum all,
+
+Generate & Deploy
+1. Persiapan
+	- Install Nodejs 
+	- install Gitbash
+	- lalu Buka gitbash dan jalankan "npm install" di root folder script
+	- edit file .env (isi domain, nama site, Title dan deskripsi, dan bisa atur backdate dan schedulling post)
+	- Keyword.txt 
+	- Apikey.txt
+	- pexels_apikey.txt 
+	- ads.txt
+
+2. Generate
+
+	- Buka gitbash dan di folder script jalankan perintah generate "npm run build"
+
+3. Deploy dan hubungkan domain
+	- buka cloudflare
+	- di Compute workers create pages > Use direct upload > Get start
+	- Create Project name bebas  lalu 
+	- Upload folder dist > Deploy > Continue 
+	- Custom domain
+
+4. Finish
+
+
+Tambahan!
+- data hasil generate public/articles.json
+- backup data tersebut sesuai dengan domain, jika ingin update gunakan lagi data tersebut 
+- jika buat baru untuk domain berbeda hapus data tersebut dan hapus folder dist
+
+
+
+
+
+
+
+
+
+
+
+
+

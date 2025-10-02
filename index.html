@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="id">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    
+    <title>%VITE_SITE_NAME%</title> 
+    <meta name="description" content="%VITE_OG_DESCRIPTION%">
+    
+    <link rel="canonical" href="%VITE_SITE_URL%/">
+    <link rel="alternate" type="application/rss+xml" title="%VITE_SITE_NAME% RSS Feed" href="/rss.xml">
+
+    <meta property="og:type" content="website"> 
+    <meta property="og:title" content="%VITE_OG_TITLE%"> 
+    <meta property="og:description" content="%VITE_OG_DESCRIPTION%">
+    <meta property="og:image" content="%VITE_SITE_URL%/logo.png"> 
+    <meta property="og:url" content="%VITE_SITE_URL%/">
+    <meta property="og:site_name" content="%VITE_SITE_NAME%">
+
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="%VITE_OG_TITLE%">
+    <meta name="twitter:description" content="%VITE_OG_DESCRIPTION%">
+    <meta name="twitter:image" content="%VITE_SITE_URL%/logo.png">
+
+    <link rel="icon" href="/favicon.ico" sizes="any">
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" crossorigin>
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    
+    <link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" onload="this.onload=null;this.rel='stylesheet'">
+    
+    <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"></noscript>
+
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module" src="/src/main.js"></script>
+
+    <script type="text/javascript">
+      (function() {
+        if (navigator.userAgent.includes('HeadlessChrome')) {
+          return;
+        }
+
+        const adDelaySeconds = 3;
+
+        async function showFloatingAd() {
+          try {
+            const response = await fetch('/ads-content/floating.html');
+            if (!response.ok) return;
+            const adCode = await response.text();
+
+            if (!adCode || adCode.trim().length < 10) return;
+
+            const adContainer = document.createElement('div');
+            adContainer.style.cssText = 'position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 9999; background-color: white; padding: 10px; border: 1px solid #ccc; box-shadow: 0 5px 15px rgba(0,0,0,0.3);';
+            
+            const closeButton = document.createElement('button');
+            closeButton.innerText = 'X';
+            closeButton.style.cssText = 'position: absolute; top: 5px; right: 5px; background: #eee; border: 1px solid #ddd; border-radius: 50%; width: 25px; height: 25px; line-height: 25px; text-align: center; cursor: pointer; font-weight: bold; padding: 0; z-index: 10000;';
+            closeButton.onclick = () => adContainer.remove();
+
+            adContainer.innerHTML = adCode;
+            adContainer.prepend(closeButton);
+            document.body.appendChild(adContainer);
+
+            adContainer.querySelectorAll('script').forEach(oldScript => {
+              const newScript = document.createElement('script');
+              Array.from(oldScript.attributes).forEach(attr => newScript.setAttribute(attr.name, attr.value));
+              if (oldScript.innerHTML) {
+                newScript.innerHTML = oldScript.innerHTML;
+              }
+              oldScript.parentNode.replaceChild(newScript, oldScript);
+            });
+          } catch(e) {}
+        }
+
+        window.addEventListener('load', () => {
+          setTimeout(showFloatingAd, adDelaySeconds * 1000);
+        });
+      })();
+    </script>
+  </body>
+</html>
