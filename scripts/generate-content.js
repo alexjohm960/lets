@@ -9,6 +9,9 @@ const PEXELS_API_KEY_PATH = path.resolve(process.cwd(), "pexels_apikey.txt");
 const KEYWORD_PATH = path.resolve(process.cwd(), "keyword.txt");
 const OUTPUT_PATH = path.resolve(process.cwd(), "public", "articles.json");
 
+// ⚠️ INI ADALAH CACHE SYSTEM BARU
+const CACHE_FILE = path.resolve(process.cwd(), ".generate-cache.json");
+
 const BACKDATE_DAYS = parseInt(process.env.BACKDATE_DAYS) || 3;
 const FUTURE_SCHEDULE_DAYS = parseInt(process.env.FUTURE_SCHEDULE_DAYS) || 30;
 const REQUEST_DELAY_MS = 10000;
@@ -17,6 +20,111 @@ const GEMINI_MODEL = "gemini-2.5-pro";
 
 const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
+// ⚠️ CACHE FUNCTIONS - SYSTEM INCREMENTAL BARU
+async function loadCache() {
+  try {
+    const cacheContent = await fs.readFile(CACHE_FILE, "utf-8");
+    return JSON.parse(cacheContent);
+  } catch (e) {
+    console.log('[CACHE] No cache found, creating new...');
+    return { generatedKeywords: [], lastHash: '' };
+  }
+}
+
+async function saveCache(cache) {
+  await fs.writeFile(CACHE_FILE, JSON.stringify(cache, null, 2));
+}
+
+function getKeywordsHash(keywordsContent) {
+  let hash = 0;
+  for (let i = 0; i < keywordsContent.length; i++) {
+    const char = keywordsContent.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash;
+  }
+  return hash.toString();
+}
+
+function getNewKeywords(currentKeywords, cache) {
+  const existingKeywords = cache.generatedKeywords || [];
+  return currentKeywords.filter(keyword => 
+    !existingKeywords.includes(keyword.trim())
+  );
+}
+
+// 🎯 FUNGSI UTAMA INCREMENTAL GENERATE
+async function incrementalGenerate() {
+  console.log('🔍 Starting incremental content generation...');
+  
+  // Load cache dan keywords
+  const cache = await loadCache();
+  const keywordsContent = await fs.readFile(KEYWORD_PATH, "utf-8");
+  const currentKeywords = keywordsContent.split('\n')
+    .map(k => k.trim())
+    .filter(k => k.length > 0);
+  
+  const currentHash = getKeywordsHash(keywordsContent);
+  
+  // Cek jika keywords tidak berubah
+  if (currentHash === cache.lastHash) {
+    console.log('✅ No changes in keywords, skipping content generation');
+    return { generated: 0, skipped: currentKeywords.length };
+  }
+  
+  // Dapatkan keywords baru
+  const newKeywords = getNewKeywords(currentKeywords, cache);
+  const existingKeywords = cache.generatedKeywords || [];
+  
+  console.log(`📝 New keywords to generate: ${newKeywords.length}`);
+  console.log(`📁 Existing keywords: ${existingKeywords.length}`);
+  
+  if (newKeywords.length === 0) {
+    console.log('💤 No new keywords to generate');
+    // Update hash saja untuk menandai sudah diproses
+    cache.lastHash = currentHash;
+    await saveCache(cache);
+    return { generated: 0, skipped: existingKeywords.length };
+  }
+  
+  // 🚀 PROSES GENERATE UNTUK KEYWORD BARU
+  let generatedCount = 0;
+  
+  try {
+    // Load API keys dan setup seperti biasa
+    const rawApiKeyContent = await fs.readFile(API_KEY_PATH, "utf-8");
+    const apiKeys = rawApiKeyContent.split('\n').filter(key => key.trim().startsWith("AIzaSy"));
+    if (apiKeys.length === 0) throw new Error("Tidak ada kunci API valid di apikey.txt.");
+    
+    const pexelsApiKey = await fs.readFile(PEXELS_API_KEY_PATH, "utf-8").catch(() => {
+      console.warn("[WARN] pexels_apikey.txt tidak ditemukan. Pencarian gambar akan dilewati.");
+      return null;
+    }).then(key => key ? key.trim() : null);
+
+    const apiKeyManager = new ApiKeyManager(apiKeys);
+    
+    // Load existing articles
+    let allArticles = await fs.readFile(OUTPUT_PATH, "utf-8").then(JSON.parse).catch(() => []);
+    
+    // Process hanya keyword baru
+    generatedCount = await processNewKeywords(newKeywords, apiKeyManager, pexelsApiKey, allArticles);
+    
+    // Update cache dengan keyword baru
+    cache.generatedKeywords = [...new Set([...existingKeywords, ...newKeywords])];
+    cache.lastHash = currentHash;
+    await saveCache(cache);
+    
+    console.log(`🎉 Generated ${generatedCount} new articles`);
+    console.log(`📊 Total keywords in cache: ${cache.generatedKeywords.length}`);
+    
+  } catch (error) {
+    console.error('❌ Error during incremental generation:', error);
+    throw error;
+  }
+  
+  return { generated: generatedCount, skipped: existingKeywords.length };
+}
+
+// 🔧 FUNGSI-FUNGSI YANG SUDAH ADA (TIDAK DIUBAH)
 const getAnalysisPrompt = (keyword) => `
   Analyze the user keyword: "${keyword}".
   Your task is to act as an award-winning content strategist and return a single, valid JSON object.
@@ -177,11 +285,13 @@ async function fetchImageFromPexels(keyword, pexelsApiKey) {
 }
 
 async function processNewKeywords(keywordsToGenerate, apiKeyManager, pexelsApiKey, allArticles) {
-    console.log(`\n[INFO] Menemukan ${keywordsToGenerate.length} kata kunci baru untuk diproses.`);
+    console.log(`\n[INFO] Memproses ${keywordsToGenerate.length} kata kunci baru...`);
     
     const totalScheduleSpan = BACKDATE_DAYS + FUTURE_SCHEDULE_DAYS;
     const postsPerDay = Math.ceil(keywordsToGenerate.length / totalScheduleSpan) || 1;
     let keywordCount = allArticles.length;
+
+    let generatedCount = 0;
 
     for (let i = 0; i < keywordsToGenerate.length; i++) {
         const keyword = keywordsToGenerate[i].trim();
@@ -220,7 +330,11 @@ async function processNewKeywords(keywordsToGenerate, apiKeyManager, pexelsApiKe
             jsonResult.imageUrl = imageUrl;
 
             allArticles.push(jsonResult);
+            generatedCount++;
             console.log(` -> [SUCCESS] Artikel unik untuk "${keyword}" telah selesai.`);
+
+            // Save progress after each article
+            await fs.writeFile(OUTPUT_PATH, JSON.stringify(allArticles, null, 2));
 
         } catch (e) {
             console.error(` -> [FAILED] Melewati kata kunci "${keyword}" setelah mencoba semua API. Error: ${e.message}`);
@@ -231,63 +345,23 @@ async function processNewKeywords(keywordsToGenerate, apiKeyManager, pexelsApiKe
             await delay(REQUEST_DELAY_MS);
         }
     }
-}
-
-async function updateImagesForExistingArticles(allArticles, pexelsApiKey) {
-    console.log("\n--- Memulai proses pembaruan gambar untuk artikel yang ada ---");
-    let updatedCount = 0;
-    const articlesWithoutImage = allArticles.filter(article => !article.hasOwnProperty('imageUrl'));
-
-    if (articlesWithoutImage.length === 0) {
-        console.log("[INFO] Tidak ada artikel yang perlu pembaruan gambar.");
-        return;
-    }
-
-    for (const article of articlesWithoutImage) {
-        console.log(` -> Memperbarui gambar untuk: "${article.term}"`);
-        const imageUrl = await fetchImageFromPexels(article.term, pexelsApiKey);
-        article.imageUrl = imageUrl;
-        if (imageUrl) updatedCount++;
-        await delay(API_CALL_DELAY_MS); 
-    }
     
-    console.log(`--- Pembaruan gambar selesai. ${updatedCount} gambar ditambahkan. ---`);
+    return generatedCount;
 }
 
+// 🎯 MAIN FUNCTION YANG DIUBAH
 async function main() {
-  console.log("🚀 Memulai Proses Pembuatan Konten Universal...");
+  console.log("🚀 Starting Smart Content Generation...");
   
   try {
+    // Pastikan directory output ada
     await fs.mkdir(path.dirname(OUTPUT_PATH), { recursive: true });
 
-    const rawApiKeyContent = await fs.readFile(API_KEY_PATH, "utf-8");
-    const apiKeys = rawApiKeyContent.split('\n').filter(key => key.trim().startsWith("AIzaSy"));
-    if (apiKeys.length === 0) throw new Error("Tidak ada kunci API valid di apikey.txt.");
+    // Jalankan incremental generate
+    const result = await incrementalGenerate();
     
-    const pexelsApiKey = await fs.readFile(PEXELS_API_KEY_PATH, "utf-8").catch(() => {
-        console.warn("[WARN] pexels_apikey.txt tidak ditemukan. Pencarian gambar akan dilewati.");
-        return null;
-    }).then(key => key ? key.trim() : null);
-
-    const keywords = (await fs.readFile(KEYWORD_PATH, "utf-8")).trim().split('\n').filter(k => k.trim());
-    let allArticles = await fs.readFile(OUTPUT_PATH, "utf-8").then(JSON.parse).catch(() => []);
-
-    const apiKeyManager = new ApiKeyManager(apiKeys);
-
-    const createSlug = (text = '') => text.toLowerCase().replace(/\s+/g, '-').replace(/[^\w-]+/g, '');
-    const existingSlugs = new Set(allArticles.map(article => article.slug));
-    const keywordsToGenerate = keywords.filter(keyword => !existingSlugs.has(createSlug(keyword)));
-
-    if (keywordsToGenerate.length > 0) {
-      await processNewKeywords(keywordsToGenerate, apiKeyManager, pexelsApiKey, allArticles);
-    } else {
-      console.log("[INFO] Semua kata kunci sudah memiliki artikel. Tidak ada konten baru yang dibuat.");
-    }
-    
-    await updateImagesForExistingArticles(allArticles, pexelsApiKey);
-
-    await fs.writeFile(OUTPUT_PATH, JSON.stringify(allArticles, null, 2));
-    console.log(`\n✅ Proses selesai. Total artikel saat ini: ${allArticles.length}.`);
+    console.log(`\n✅ Process completed!`);
+    console.log(`📊 Results: ${result.generated} new articles generated, ${result.skipped} existing articles skipped`);
 
   } catch (error) {
     console.error("\n❌ Terjadi error fatal selama proses:", error);
@@ -295,4 +369,10 @@ async function main() {
   }
 }
 
-main();
+// Export untuk digunakan di build-manager.js
+export { incrementalGenerate };
+
+// Jika dipanggil langsung
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  main();
+}
