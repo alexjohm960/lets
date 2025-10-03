@@ -1,15 +1,17 @@
 {
   "name": "bzagc-addict",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.0.0", 
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "npm run generate && npm run build:site",
+    "build": "node ./scripts/build-manager.js",
+    "build:full": "npm run clean:cache && npm run generate && vite build",
+    "build:site": "vite build",
     "prerender:run": "node ./scripts/prerender.js",
-    "build:site": "vite build && concurrently \"npm:preview\" \"npm:prerender:run\" --kill-others --success first && node ./scripts/generate-sitemap.js && node ./scripts/generate-rss.js",
     "generate": "node ./scripts/generate-content.js",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "clean:cache": "rm -f .generate-cache.json"
   },
   "dependencies": {
     "@google/generative-ai": "^0.16.0",
