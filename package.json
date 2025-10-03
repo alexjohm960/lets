@@ -1,7 +1,7 @@
 {
   "name": "bzagc-addict",
   "private": true,
-  "version": "1.0.0", 
+  "version": "1.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -11,7 +11,8 @@
     "prerender:run": "node ./scripts/prerender.js",
     "generate": "node ./scripts/generate-content.js",
     "preview": "vite preview",
-    "clean:cache": "rm -f .generate-cache.json"
+    "clean:cache": "rm -f .generate-cache.json",
+    "reset:content": "npm run clean:cache && rm -f public/articles.json"
   },
   "dependencies": {
     "@google/generative-ai": "^0.16.0",
