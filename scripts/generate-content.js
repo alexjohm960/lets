@@ -1,15 +1,17 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import fs from "fs/promises";
 import path from "path";
+import { fileURLToPath } from 'url';
 import 'dotenv/config';
 import axios from 'axios';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const API_KEY_PATH = path.resolve(process.cwd(), "apikey.txt");
 const PEXELS_API_KEY_PATH = path.resolve(process.cwd(), "pexels_apikey.txt");
 const KEYWORD_PATH = path.resolve(process.cwd(), "keyword.txt");
 const OUTPUT_PATH = path.resolve(process.cwd(), "public", "articles.json");
-
-// ⚠️ INI ADALAH CACHE SYSTEM BARU
 const CACHE_FILE = path.resolve(process.cwd(), ".generate-cache.json");
 
 const BACKDATE_DAYS = parseInt(process.env.BACKDATE_DAYS) || 3;
@@ -20,7 +22,7 @@ const GEMINI_MODEL = "gemini-2.5-pro";
 
 const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
-// ⚠️ CACHE FUNCTIONS - SYSTEM INCREMENTAL BARU
+// CACHE SYSTEM - INCREMENTAL GENERATION
 async function loadCache() {
   try {
     const cacheContent = await fs.readFile(CACHE_FILE, "utf-8");
@@ -52,11 +54,10 @@ function getNewKeywords(currentKeywords, cache) {
   );
 }
 
-// 🎯 FUNGSI UTAMA INCREMENTAL GENERATE
+// INCREMENTAL GENERATE MAIN FUNCTION
 async function incrementalGenerate() {
   console.log('🔍 Starting incremental content generation...');
   
-  // Load cache dan keywords
   const cache = await loadCache();
   const keywordsContent = await fs.readFile(KEYWORD_PATH, "utf-8");
   const currentKeywords = keywordsContent.split('\n')
@@ -65,13 +66,11 @@ async function incrementalGenerate() {
   
   const currentHash = getKeywordsHash(keywordsContent);
   
-  // Cek jika keywords tidak berubah
   if (currentHash === cache.lastHash) {
     console.log('✅ No changes in keywords, skipping content generation');
     return { generated: 0, skipped: currentKeywords.length };
   }
   
-  // Dapatkan keywords baru
   const newKeywords = getNewKeywords(currentKeywords, cache);
   const existingKeywords = cache.generatedKeywords || [];
   
@@ -80,17 +79,14 @@ async function incrementalGenerate() {
   
   if (newKeywords.length === 0) {
     console.log('💤 No new keywords to generate');
-    // Update hash saja untuk menandai sudah diproses
     cache.lastHash = currentHash;
     await saveCache(cache);
     return { generated: 0, skipped: existingKeywords.length };
   }
   
-  // 🚀 PROSES GENERATE UNTUK KEYWORD BARU
   let generatedCount = 0;
   
   try {
-    // Load API keys dan setup seperti biasa
     const rawApiKeyContent = await fs.readFile(API_KEY_PATH, "utf-8");
     const apiKeys = rawApiKeyContent.split('\n').filter(key => key.trim().startsWith("AIzaSy"));
     if (apiKeys.length === 0) throw new Error("Tidak ada kunci API valid di apikey.txt.");
@@ -102,13 +98,16 @@ async function incrementalGenerate() {
 
     const apiKeyManager = new ApiKeyManager(apiKeys);
     
-    // Load existing articles
-    let allArticles = await fs.readFile(OUTPUT_PATH, "utf-8").then(JSON.parse).catch(() => []);
+    let allArticles = [];
+    try {
+      allArticles = JSON.parse(await fs.readFile(OUTPUT_PATH, "utf-8"));
+    } catch (e) {
+      console.log('[INFO] articles.json tidak ditemukan, membuat yang baru...');
+      allArticles = [];
+    }
     
-    // Process hanya keyword baru
     generatedCount = await processNewKeywords(newKeywords, apiKeyManager, pexelsApiKey, allArticles);
     
-    // Update cache dengan keyword baru
     cache.generatedKeywords = [...new Set([...existingKeywords, ...newKeywords])];
     cache.lastHash = currentHash;
     await saveCache(cache);
@@ -124,7 +123,7 @@ async function incrementalGenerate() {
   return { generated: generatedCount, skipped: existingKeywords.length };
 }
 
-// 🔧 FUNGSI-FUNGSI YANG SUDAH ADA (TIDAK DIUBAH)
+// EXISTING FUNCTIONS - NO CHANGES
 const getAnalysisPrompt = (keyword) => `
   Analyze the user keyword: "${keyword}".
   Your task is to act as an award-winning content strategist and return a single, valid JSON object.
@@ -349,15 +348,12 @@ async function processNewKeywords(keywordsToGenerate, apiKeyManager, pexelsApiKe
     return generatedCount;
 }
 
-// 🎯 MAIN FUNCTION YANG DIUBAH
+// MAIN FUNCTION
 async function main() {
   console.log("🚀 Starting Smart Content Generation...");
   
   try {
-    // Pastikan directory output ada
     await fs.mkdir(path.dirname(OUTPUT_PATH), { recursive: true });
-
-    // Jalankan incremental generate
     const result = await incrementalGenerate();
     
     console.log(`\n✅ Process completed!`);
@@ -372,7 +368,7 @@ async function main() {
 // Export untuk digunakan di build-manager.js
 export { incrementalGenerate };
 
-// Jika dipanggil langsung
-if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  main();
+// Execute if run directly
+if (import.meta.url === `file://${process.argv[1]}`) {
+  main().catch(console.error);
 }
