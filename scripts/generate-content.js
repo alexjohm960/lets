@@ -54,24 +54,47 @@ function getNewKeywords(currentKeywords, cache) {
   );
 }
 
+// CHECK IF WE SHOULD GENERATE CONTENT
+async function shouldGenerate() {
+  try {
+    const keywordsContent = await fs.readFile(KEYWORD_PATH, "utf-8");
+    const keywords = keywordsContent.split('\n').map(k => k.trim()).filter(k => k.length > 0);
+    
+    if (keywords.length === 0) {
+      console.log('⏭️  keyword.txt is empty, skipping content generation');
+      return { shouldGenerate: false, keywords: [] };
+    }
+    
+    return { shouldGenerate: true, keywords };
+  } catch (error) {
+    if (error.code === 'ENOENT') {
+      console.log('⏭️  keyword.txt not found, skipping content generation');
+      return { shouldGenerate: false, keywords: [] };
+    }
+    throw error;
+  }
+}
+
 // INCREMENTAL GENERATE MAIN FUNCTION
 async function incrementalGenerate() {
   console.log('🔍 Starting incremental content generation...');
   
-  const cache = await loadCache();
-  const keywordsContent = await fs.readFile(KEYWORD_PATH, "utf-8");
-  const currentKeywords = keywordsContent.split('\n')
-    .map(k => k.trim())
-    .filter(k => k.length > 0);
-  
-  const currentHash = getKeywordsHash(keywordsContent);
-  
-  if (currentHash === cache.lastHash) {
-    console.log('✅ No changes in keywords, skipping content generation');
-    return { generated: 0, skipped: currentKeywords.length };
+  // Check if we should generate content
+  const { shouldGenerate, keywords } = await shouldGenerate();
+  if (!shouldGenerate) {
+    return { generated: 0, skipped: 0, reason: 'no_keywords' };
   }
   
-  const newKeywords = getNewKeywords(currentKeywords, cache);
+  const cache = await loadCache();
+  const keywordsContent = keywords.join('\n');
+  const currentHash = getKeywordsHash(keywordsContent);
+  
+  if (currentHash === cache.lastHash && keywords.length > 0) {
+    console.log('✅ No changes in keywords, skipping content generation');
+    return { generated: 0, skipped: keywords.length, reason: 'no_changes' };
+  }
+  
+  const newKeywords = getNewKeywords(keywords, cache);
   const existingKeywords = cache.generatedKeywords || [];
   
   console.log(`📝 New keywords to generate: ${newKeywords.length}`);
@@ -81,7 +104,7 @@ async function incrementalGenerate() {
     console.log('💤 No new keywords to generate');
     cache.lastHash = currentHash;
     await saveCache(cache);
-    return { generated: 0, skipped: existingKeywords.length };
+    return { generated: 0, skipped: existingKeywords.length, reason: 'no_new_keywords' };
   }
   
   let generatedCount = 0;
@@ -120,7 +143,7 @@ async function incrementalGenerate() {
     throw error;
   }
   
-  return { generated: generatedCount, skipped: existingKeywords.length };
+  return { generated: generatedCount, skipped: existingKeywords.length, reason: 'success' };
 }
 
 // EXISTING FUNCTIONS - NO CHANGES
@@ -353,11 +376,18 @@ async function main() {
   console.log("🚀 Starting Smart Content Generation...");
   
   try {
+    // Ensure output directory exists
     await fs.mkdir(path.dirname(OUTPUT_PATH), { recursive: true });
+    
+    // Run incremental generation
     const result = await incrementalGenerate();
     
     console.log(`\n✅ Process completed!`);
     console.log(`📊 Results: ${result.generated} new articles generated, ${result.skipped} existing articles skipped`);
+    
+    if (result.reason === 'no_keywords') {
+      console.log('💡 To generate content, add keywords to keyword.txt file');
+    }
 
   } catch (error) {
     console.error("\n❌ Terjadi error fatal selama proses:", error);
