@@ -12,7 +12,8 @@
     "generate": "node ./scripts/generate-content.js",
     "preview": "vite preview",
     "clean:cache": "rm -f .generate-cache.json",
-    "reset:content": "npm run clean:cache && rm -f public/articles.json"
+    "reset:content": "npm run clean:cache && rm -f public/articles.json",
+    "test:generate": "node ./scripts/generate-content.js"
   },
   "dependencies": {
     "@google/generative-ai": "^0.16.0",
