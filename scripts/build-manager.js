@@ -1,4 +1,3 @@
-
 // scripts/build-manager.js
 import { execSync } from 'child_process';
 import { readFileSync, existsSync } from 'fs';
@@ -10,8 +9,8 @@ const __dirname = dirname(__filename);
 
 class BuildManager {
   constructor() {
-    this.triggerFiles = ['keyword.txt', 'src/templates/', 'scripts/generate-content.js'];
-    this.nonTriggerFiles = ['src/components/', 'src/assets/', 'public/', 'src/styles/'];
+    this.triggerFiles = ['keyword.txt', 'scripts/generate-content.js', 'apikey.txt'];
+    this.nonTriggerFiles = ['src/components/', 'src/assets/', 'public/', 'src/styles/', 'package.json'];
   }
   
   getChangedFiles() {
@@ -46,13 +45,17 @@ class BuildManager {
     console.log('🧠 Smart Build System Starting...');
     
     const changedFiles = this.getChangedFiles();
+    console.log('📁 Changed files:', changedFiles);
     
     if (this.shouldRegenerateContent(changedFiles)) {
       console.log('🔄 Changes detected in content-related files, regenerating...');
-      execSync('node ./scripts/generate-content.js', { stdio: 'inherit' });
+      try {
+        execSync('node ./scripts/generate-content.js', { stdio: 'inherit' });
+      } catch (error) {
+        console.error('❌ Content generation failed, but continuing with build...');
+      }
     } else {
-      console.log('🚫 No content changes, skipping regeneration');
-      console.log('📁 Changed files:', changedFiles);
+      console.log('🚫 No content changes, skipping content generation');
     }
     
     // Always build the site
