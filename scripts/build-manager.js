@@ -1,244 +1,200 @@
-import { execSync } from 'child_process';
-import { readFileSync, existsSync } from 'fs';
-import { join, dirname } from 'path';
-import { fileURLToPath } from 'url';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
+const fs = require('fs');
+const path = require('path');
+const { execSync } = require('child_process');
+const { SmartContentGenerator } = require('./generate-content');
 
 class BuildManager {
-  constructor() {
-    this.triggerFiles = ['keyword.txt', 'scripts/generate-content.js', 'apikey.txt', 'pexels_apikey.txt'];
-    this.nonTriggerFiles = ['src/components/', 'src/assets/', 'public/', 'src/styles/', 'package.json', 'vite.config.js'];
-  }
-  
-  hasKeywords() {
-    try {
-      const keywordPath = join(process.cwd(), 'keyword.txt');
-      if (!existsSync(keywordPath)) return false;
-      
-      const content = readFileSync(keywordPath, 'utf-8');
-      const keywords = content.split('\n').filter(k => k.trim());
-      return keywords.length > 0;
-    } catch (error) {
-      return false;
+    constructor() {
+        this.keywordsFile = path.join(process.cwd(), 'keyword.txt');
+        this.articlesFile = path.join(process.cwd(), 'public', 'articles.json');
+        this.cacheFile = path.join(process.cwd(), 'content-cache.json');
     }
-  }
-  
-  hasArticles() {
-    try {
-      const articlesPath = join(process.cwd(), 'public/articles.json');
-      if (!existsSync(articlesPath)) {
-        return false;
-      }
-      
-      const content = readFileSync(articlesPath, 'utf-8');
-      const articles = JSON.parse(content);
-      return articles.length > 0;
-    } catch (error) {
-      return false;
-    }
-  }
-  
-  getChangedFiles() {
-    try {
-      const result = execSync('git diff --name-only HEAD~1 HEAD 2>/dev/null || echo ""', { 
-        encoding: 'utf8' 
-      });
-      const files = result.split('\n').filter(f => f);
-      return files.length > 0 ? files : null;
-    } catch (error) {
-      console.log('⚠️  Cannot get git diff, proceeding with build');
-      return null;
-    }
-  }
-  
-  shouldRegenerateContent(changedFiles = []) {
-    if (!changedFiles || changedFiles.length === 0) {
-      console.log('🔍 No changed files detected, checking for content needs...');
-      return this.hasKeywords(); // Regenerate if we have keywords
-    }
-    
-    console.log('📁 Changed files detected:', changedFiles);
-    
-    const needsRegenerate = changedFiles.some(file => 
-      this.triggerFiles.some(trigger => file.includes(trigger))
-    );
-    
-    const canSkip = changedFiles.every(file =>
-      this.nonTriggerFiles.some(nonTrigger => file.includes(nonTrigger))
-    );
-    
-    return needsRegenerate || !canSkip;
-  }
-  
-  async build() {
-    console.log('🧠 Smart Build System with Batch Processing');
-    console.log('==========================================');
-    
-    // Check if batch processing is enabled (progress file exists)
-    const shouldUseBatch = this.hasKeywords() && existsSync(join(process.cwd(), '.batch-progress.json'));
-    
-    if (shouldUseBatch) {
-      console.log('🔄 Batch processing mode detected');
-      return await this.runBatchBuild();
-    } else {
-      console.log('🚀 Standard build mode');
-      return await this.runStandardBuild();
-    }
-  }
-  
-  async runBatchBuild() {
-    try {
-      // Import and run batch generator
-      const { BatchGenerator } = await import('./batch-generator.js');
-      const generator = new BatchGenerator();
-      
-      const result = await generator.runBatch();
-      
-      if (result.processed > 0 && result.shouldDeploy) {
-        console.log('------------------------------------------');
-        console.log('🏗️  Building site with new content...');
-        
-        // Build the site
-        execSync('vite build', { stdio: 'inherit' });
-        console.log('✅ Site build completed');
-        
-        // Run post-build tasks if we have articles
-        if (this.hasArticles()) {
-          console.log('📋 Running post-build tasks...');
-          
-          try {
-            execSync('node ./scripts/prerender.js', { stdio: 'inherit' });
-            console.log('✅ Prerender completed');
-          } catch (error) {
-            console.log('⚠️  Prerender failed:', error.message);
-          }
-          
-          try {
-            execSync('node ./scripts/generate-sitemap.js', { stdio: 'inherit' });
-            console.log('✅ Sitemap generated');
-          } catch (error) {
-            console.log('⚠️  Sitemap generation failed:', error.message);
-          }
-          
-          try {
-            execSync('node ./scripts/generate-rss.js', { stdio: 'inherit' });
-            console.log('✅ RSS generated');
-          } catch (error) {
-            console.log('⚠️  RSS generation failed:', error.message);
-          }
-        }
-        
+
+    async run() {
+        console.log('🧠 Smart Build System with Batch Processing');
         console.log('==========================================');
-        console.log(`✅ Build completed! Processed ${result.processed} new articles`);
         
-        const status = generator.getStatus();
-        if (status.pending > 0) {
-          console.log(`⏰ Next batch will run at: ${status.nextRun.toLocaleString()}`);
-          console.log(`📊 Remaining: ${status.pending} keywords (${status.totalBatches - status.currentBatch} batches)`);
-        } else {
-          console.log('🎉 All content generation completed!');
+        try {
+            // Step 1: Load keywords
+            const keywords = this.loadKeywords();
+            if (keywords.length === 0) {
+                console.log('❌ No keywords found in keyword.txt');
+                process.exit(1);
+            }
+
+            console.log(`📋 Loaded ${keywords.length} keywords from keyword.txt`);
+
+            // Step 2: Content Generation
+            console.log('🔍 Checking content needs...');
+            const needsGeneration = await this.checkContentNeeds(keywords);
+            
+            if (needsGeneration) {
+                console.log('🔄 Starting content generation...');
+                await this.generateContent(keywords);
+            } else {
+                console.log('✅ Content is up to date, skipping generation');
+            }
+
+            // Step 3: Build Site
+            console.log('🏗️  Building site with Vite...');
+            await this.buildSite();
+
+            // Step 4: Post-build tasks
+            console.log('📋 Running post-build tasks...');
+            await this.runPostBuildTasks();
+
+            console.log('==========================================');
+            console.log('✅ Build completed successfully!');
+            console.log('💡 To add content: Add keywords to keyword.txt and rebuild');
+
+        } catch (error) {
+            console.error('❌ Build failed:', error);
+            process.exit(1);
         }
-        
-      } else {
-        console.log('⏭️  No new batch processed, skipping build');
-        console.log(`💡 Reason: ${result.reason}`);
-      }
-      
-    } catch (error) {
-      console.error('❌ Batch build failed:', error.message);
-      // Fallback to standard build
-      console.log('🔄 Falling back to standard build...');
-      await this.runStandardBuild();
     }
-  }
-  
-  async runStandardBuild() {
-    // Check if we have keywords
-    const hasKeywords = this.hasKeywords();
-    const hasArticles = this.hasArticles();
-    
-    if (!hasKeywords) {
-      console.log('💡 Tip: Add keywords to keyword.txt to generate content');
+
+    loadKeywords() {
+        try {
+            if (!fs.existsSync(this.keywordsFile)) {
+                console.log('⚠️  keyword.txt not found, creating default...');
+                fs.writeFileSync(this.keywordsFile, 'Are cats or dogs smarter\nAre cats cleaner than dogs');
+                return ['Are cats or dogs smarter', 'Are cats cleaner than dogs'];
+            }
+
+            const content = fs.readFileSync(this.keywordsFile, 'utf8');
+            return content
+                .split('\n')
+                .map(line => line.trim())
+                .filter(line => line.length > 0 && !line.startsWith('#'))
+                .filter((value, index, self) => self.indexOf(value) === index); // Remove duplicates
+
+        } catch (error) {
+            console.log('❌ Error loading keywords:', error.message);
+            return [];
+        }
     }
-    
-    // Get changed files
-    const changedFiles = this.getChangedFiles();
-    
-    // Decide if we should generate content
-    const shouldGenerate = hasKeywords && this.shouldRegenerateContent(changedFiles);
-    
-    if (shouldGenerate) {
-      console.log('🔄 Starting content generation...');
-      try {
-        execSync('node ./scripts/generate-content.js', { stdio: 'inherit' });
-        console.log('✅ Content generation completed');
-      } catch (error) {
-        console.error('❌ Content generation failed, but continuing with build...');
-      }
-    } else if (hasKeywords) {
-      console.log('🚫 No changes detected, skipping content generation');
-    } else {
-      console.log('⏭️  No keywords found, skipping content generation');
+
+    async checkContentNeeds(keywords) {
+        try {
+            // Check if articles.json exists and has content
+            if (!fs.existsSync(this.articlesFile)) {
+                console.log('📝 articles.json not found, need generation');
+                return true;
+            }
+
+            const articlesData = JSON.parse(fs.readFileSync(this.articlesFile, 'utf8'));
+            const existingArticles = articlesData.articles || [];
+            
+            // Check cache for better tracking
+            const cache = fs.existsSync(this.cacheFile) 
+                ? JSON.parse(fs.readFileSync(this.cacheFile, 'utf8'))
+                : { generatedKeywords: [] };
+
+            const existingKeywords = existingArticles.map(article => article.keyword?.toLowerCase().trim());
+            const cachedKeywords = cache.generatedKeywords || [];
+            const allExisting = [...new Set([...existingKeywords, ...cachedKeywords])];
+
+            const newKeywords = keywords.filter(keyword => 
+                !allExisting.includes(keyword.toLowerCase().trim())
+            );
+
+            if (newKeywords.length > 0) {
+                console.log(`🆕 Found ${newKeywords.length} new keywords that need generation`);
+                return true;
+            }
+
+            console.log(`✅ All ${keywords.length} keywords already have content`);
+            return false;
+
+        } catch (error) {
+            console.log('❌ Error checking content needs:', error.message);
+            return true; // Default to generation if there's any error
+        }
     }
-    
-    console.log('------------------------------------------');
-    
-    // Always build the site
-    console.log('🏗️  Building site with Vite...');
-    try {
-      execSync('vite build', { stdio: 'inherit' });
-      console.log('✅ Site build completed');
-    } catch (error) {
-      console.error('❌ Site build failed:', error.message);
-      process.exit(1);
+
+    async generateContent(keywords) {
+        try {
+            const generator = new SmartContentGenerator();
+            const result = await generator.generateForKeywords(keywords);
+            
+            console.log(`📊 Generation results: ${result.generated} new, ${result.skipped} existing, ${result.failed} failed`);
+            
+            if (result.failed > 0) {
+                console.log('⚠️  Some keywords failed, but continuing build...');
+            }
+            
+            return result;
+
+        } catch (error) {
+            console.log('❌ Content generation failed:', error);
+            throw error;
+        }
     }
-    
-    console.log('------------------------------------------');
-    
-    // Post-build tasks - only run if we have articles
-    console.log('📋 Running post-build tasks...');
-    
-    if (this.hasArticles()) {
-      console.log('📚 Articles found, running post-processing...');
-      
-      try {
-        console.log('🔍 Prerendering pages...');
-        execSync('node ./scripts/prerender.js', { stdio: 'inherit' });
-        console.log('✅ Prerender completed');
-      } catch (error) {
-        console.log('⚠️  Prerender failed:', error.message);
-      }
-      
-      try {
-        console.log('🗺️  Generating sitemap...');
-        execSync('node ./scripts/generate-sitemap.js', { stdio: 'inherit' });
-        console.log('✅ Sitemap generated');
-      } catch (error) {
-        console.log('⚠️  Sitemap generation failed:', error.message);
-      }
-      
-      try {
-        console.log('📢 Generating RSS feed...');
-        execSync('node ./scripts/generate-rss.js', { stdio: 'inherit' });
-        console.log('✅ RSS generated');
-      } catch (error) {
-        console.log('⚠️  RSS generation failed:', error.message);
-      }
-    } else {
-      console.log('📭 No articles found, skipping post-processing');
-      console.log('💡 Generated site will work with static pages only');
+
+    async buildSite() {
+        try {
+            execSync('npm run build:vite', { 
+                stdio: 'inherit',
+                cwd: process.cwd()
+            });
+            console.log('✅ Site build completed');
+        } catch (error) {
+            console.log('❌ Site build failed:', error.message);
+            throw error;
+        }
     }
-    
-    console.log('==========================================');
-    console.log('✅ Build completed successfully!');
-    
-    if (!hasArticles) {
-      console.log('💡 To add content: Add keywords to keyword.txt and rebuild');
+
+    async runPostBuildTasks() {
+        try {
+            // Run prerender
+            console.log('🔍 Prerendering pages...');
+            await this.runPrerender();
+
+            // Generate sitemap
+            console.log('🗺️  Generating sitemap...');
+            await this.generateSitemap();
+
+            // Generate RSS
+            console.log('📢 Generating RSS feed...');
+            await this.generateRSS();
+
+        } catch (error) {
+            console.log('⚠️  Some post-build tasks failed, but continuing...', error.message);
+        }
     }
-  }
+
+    async runPrerender() {
+        try {
+            const { prerender } = require('./prerender');
+            await prerender();
+        } catch (error) {
+            console.log('❌ Prerender failed:', error.message);
+        }
+    }
+
+    async generateSitemap() {
+        try {
+            const { generateSitemap } = require('./sitemap-generator');
+            await generateSitemap();
+        } catch (error) {
+            console.log('❌ Sitemap generation failed:', error.message);
+        }
+    }
+
+    async generateRSS() {
+        try {
+            const { generateRSS } = require('./rss-generator');
+            await generateRSS();
+        } catch (error) {
+            console.log('❌ RSS generation failed:', error.message);
+        }
+    }
 }
 
-const manager = new BuildManager();
-manager.build().catch(console.error);
+// Run if called directly
+if (require.main === module) {
+    const manager = new BuildManager();
+    manager.run().catch(console.error);
+}
+
+module.exports = { BuildManager };
