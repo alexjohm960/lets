@@ -1,17 +1,42 @@
-const fs = require('fs');
-const path = require('path');
-const { ApiKeyManager } = require('./api-key-manager');
-const { ContentGenerator } = require('./content-generator');
-const { ImageSearch } = require('./image-search');
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// Dynamic imports
+let ApiKeyManager;
+let ContentGenerator;
+let ImageSearch;
 
 class SmartContentGenerator {
     constructor() {
-        this.apiKeyManager = new ApiKeyManager();
-        this.contentGenerator = new ContentGenerator(this.apiKeyManager);
-        this.imageSearch = new ImageSearch();
+        this.apiKeyManager = null;
+        this.contentGenerator = null;
+        this.imageSearch = null;
         this.articlesFile = path.join(process.cwd(), 'public', 'articles.json');
         this.cacheFile = path.join(process.cwd(), 'content-cache.json');
         this.ensureDirectories();
+    }
+
+    async initialize() {
+        if (!ApiKeyManager) {
+            const module = await import('./api-key-manager.js');
+            ApiKeyManager = module.ApiKeyManager;
+        }
+        if (!ContentGenerator) {
+            const module = await import('./content-generator.js');
+            ContentGenerator = module.ContentGenerator;
+        }
+        if (!ImageSearch) {
+            const module = await import('./image-search.js');
+            ImageSearch = module.ImageSearch;
+        }
+
+        this.apiKeyManager = new ApiKeyManager();
+        this.contentGenerator = new ContentGenerator(this.apiKeyManager);
+        this.imageSearch = new ImageSearch();
     }
 
     ensureDirectories() {
@@ -76,6 +101,9 @@ class SmartContentGenerator {
     async generateForKeywords(keywords) {
         console.log('🚀 Starting Smart Content Generation...');
         console.log('🔍 Starting incremental content generation...');
+
+        // Initialize dependencies
+        await this.initialize();
 
         // Load existing data
         const articlesData = await this.loadArticles();
@@ -243,4 +271,4 @@ class SmartContentGenerator {
     }
 }
 
-module.exports = { SmartContentGenerator };
+export { SmartContentGenerator };
