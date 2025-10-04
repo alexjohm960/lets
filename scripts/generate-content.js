@@ -11,6 +11,7 @@ const __dirname = path.dirname(__filename);
 const API_KEY_PATH = path.resolve(process.cwd(), "apikey.txt");
 const PEXELS_API_KEY_PATH = path.resolve(process.cwd(), "pexels_apikey.txt");
 const KEYWORD_PATH = path.resolve(process.cwd(), "keyword.txt");
+const BATCH_KEYWORD_PATH = path.resolve(process.cwd(), "keyword-batch.txt"); // ✅ BATCH SUPPORT
 const OUTPUT_PATH = path.resolve(process.cwd(), "public", "articles.json");
 const CACHE_FILE = path.resolve(process.cwd(), ".generate-cache.json");
 
@@ -54,25 +55,61 @@ function getNewKeywords(currentKeywords, cache) {
   );
 }
 
-// INCREMENTAL GENERATE MAIN FUNCTION - FIXED VERSION
-async function incrementalGenerate() {
-  console.log('🔍 Starting incremental content generation...');
-  
+// ✅ BATCH SUPPORT - Check which keyword file to use
+async function shouldGenerate() {
+  // Priority 1: Check for batch file (batch processing mode)
   try {
-    // Check keywords first
+    await fs.access(BATCH_KEYWORD_PATH);
+    const batchKeywordsContent = await fs.readFile(BATCH_KEYWORD_PATH, "utf-8");
+    const batchKeywords = batchKeywordsContent.split('\n').map(k => k.trim()).filter(k => k.length > 0);
+    
+    if (batchKeywords.length > 0) {
+      console.log(`📦 Batch mode: Processing ${batchKeywords.length} keywords`);
+      return { shouldGenerate: true, keywords: batchKeywords, isBatch: true };
+    }
+  } catch (error) {
+    // Batch file doesn't exist, continue with normal processing
+  }
+  
+  // Priority 2: Normal keyword.txt processing
+  try {
     const keywordsContent = await fs.readFile(KEYWORD_PATH, "utf-8");
     const keywords = keywordsContent.split('\n').map(k => k.trim()).filter(k => k.length > 0);
     
     if (keywords.length === 0) {
       console.log('⏭️  keyword.txt is empty, skipping content generation');
+      return { shouldGenerate: false, keywords: [], isBatch: false };
+    }
+    
+    return { shouldGenerate: true, keywords, isBatch: false };
+  } catch (error) {
+    if (error.code === 'ENOENT') {
+      console.log('⏭️  keyword.txt not found, skipping content generation');
+      return { shouldGenerate: false, keywords: [], isBatch: false };
+    }
+    throw error;
+  }
+}
+
+// INCREMENTAL GENERATE MAIN FUNCTION - FIXED
+async function incrementalGenerate() {
+  console.log('🔍 Starting incremental content generation...');
+  
+  try {
+    // Check which keywords to use (batch or normal)
+    const { shouldGenerate, keywords, isBatch } = await shouldGenerate();
+    
+    if (!shouldGenerate) {
       return { generated: 0, skipped: 0, reason: 'no_keywords' };
     }
     
     // Continue with cache logic
     const cache = await loadCache();
+    const keywordsContent = keywords.join('\n');
     const currentHash = getKeywordsHash(keywordsContent);
     
-    if (currentHash === cache.lastHash) {
+    // Only skip if not in batch mode and no changes
+    if (!isBatch && currentHash === cache.lastHash && keywords.length > 0) {
       console.log('✅ No changes in keywords, skipping content generation');
       return { generated: 0, skipped: keywords.length, reason: 'no_changes' };
     }
@@ -107,6 +144,7 @@ async function incrementalGenerate() {
     let allArticles = [];
     try {
       allArticles = JSON.parse(await fs.readFile(OUTPUT_PATH, "utf-8"));
+      console.log(`📚 Loaded ${allArticles.length} existing articles`);
     } catch (e) {
       console.log('[INFO] articles.json tidak ditemukan, membuat yang baru...');
       allArticles = [];
@@ -114,18 +152,20 @@ async function incrementalGenerate() {
     
     generatedCount = await processNewKeywords(newKeywords, apiKeyManager, pexelsApiKey, allArticles);
     
+    // Update cache with new keywords
     cache.generatedKeywords = [...new Set([...existingKeywords, ...newKeywords])];
     cache.lastHash = currentHash;
     await saveCache(cache);
     
     console.log(`🎉 Generated ${generatedCount} new articles`);
     console.log(`📊 Total keywords in cache: ${cache.generatedKeywords.length}`);
+    console.log(`📚 Total articles: ${allArticles.length}`);
     
-    return { generated: generatedCount, skipped: existingKeywords.length, reason: 'success' };
+    return { generated: generatedCount, skipped: existingKeywords.length, reason: 'success', isBatch };
     
   } catch (error) {
     if (error.code === 'ENOENT') {
-      console.log('⏭️  keyword.txt not found, skipping content generation');
+      console.log('⏭️  keyword files not found, skipping content generation');
       return { generated: 0, skipped: 0, reason: 'no_keywords' };
     }
     console.error('❌ Error during incremental generation:', error);
