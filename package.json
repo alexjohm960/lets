@@ -6,14 +6,16 @@
   "scripts": {
     "dev": "vite",
     "build": "node ./scripts/build-manager.js",
+    "build:batch": "node ./scripts/batch-generator.js",
+    "build:status": "node ./scripts/batch-status.js",
+    "build:reset": "node ./scripts/batch-reset.js",
     "build:full": "npm run clean:cache && npm run generate && vite build",
     "build:site": "vite build",
     "prerender:run": "node ./scripts/prerender.js",
     "generate": "node ./scripts/generate-content.js",
     "preview": "vite preview",
-    "clean:cache": "rm -f .generate-cache.json",
-    "reset:content": "npm run clean:cache && rm -f public/articles.json",
-    "test:generate": "node ./scripts/generate-content.js"
+    "clean:cache": "rm -f .generate-cache.json .batch-progress.json",
+    "reset:content": "npm run clean:cache && rm -f public/articles.json keyword-batch.txt"
   },
   "dependencies": {
     "@google/generative-ai": "^0.16.0",
