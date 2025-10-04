@@ -1,10 +1,50 @@
-<div style="width:300px; height:250px; border:1px solid #ccc;">
-    <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-7247736001286402" crossorigin="anonymous"></script>
-    <ins class="adsbygoogle"
-         style="display:block"
-         data-ad-client="ca-pub-7247736001286402"
-         data-ad-slot="6465733083"
-         data-ad-format="rectangle"></ins>
-    <script>(adsbygoogle = window.adsbygoogle || []).push({});</script>
+<div id="ad-container" style="width:300px; height:250px; border:2px dashed blue;">
+    <div id="ad-status">Loading AdSense...</div>
 </div>
+
+<script>
+console.log('=== ADSENSE DEBUG ===');
+
+// Load AdSense script
+var script = document.createElement('script');
+script.src = 'https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-7247736001286402';
+script.async = true;
+script.crossOrigin = 'anonymous';
+
+script.onload = function() {
+    console.log('AdSense script loaded successfully');
+    document.getElementById('ad-status').innerHTML = 'Script loaded, pushing ad...';
+};
+
+script.onerror = function() {
+    console.error('Failed to load AdSense script');
+    document.getElementById('ad-status').innerHTML = 'Failed to load script';
+};
+
+document.head.appendChild(script);
+
+// Tunggu 3 detik lalu push ad
+setTimeout(function() {
+    console.log('Pushing AdSense ad...');
+    if(window.adsbygoogle) {
+        var adIns = document.createElement('ins');
+        adIns.className = 'adsbygoogle';
+        adIns.style.display = 'block';
+        adIns.style.width = '300px';
+        adIns.style.height = '250px';
+        adIns.setAttribute('data-ad-client', 'ca-pub-7247736001286402');
+        adIns.setAttribute('data-ad-slot', '9337945996');
+        
+        document.getElementById('ad-container').appendChild(adIns);
+        
+        (adsbygoogle = window.adsbygoogle || []).push({});
+        console.log('Ad pushed successfully');
+        document.getElementById('ad-status').innerHTML = 'Ad pushed successfully';
+    } else {
+        console.error('adsbygoogle not defined');
+        document.getElementById('ad-status').innerHTML = 'adsbygoogle not defined';
+    }
+}, 3000);
+</script>
+
 
