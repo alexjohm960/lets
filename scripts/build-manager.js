@@ -1,7 +1,17 @@
-const fs = require('fs');
-const path = require('path');
-const { execSync } = require('child_process');
-const { SmartContentGenerator } = require('./generate-content');
+import fs from 'fs';
+import path from 'path';
+import { execSync } from 'child_process';
+import { fileURLToPath } from 'url';
+
+// ES Modules equivalent for __dirname
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// Dynamic imports untuk modules lain
+let SmartContentGenerator;
+let prerender;
+let generateSitemap;
+let generateRSS;
 
 class BuildManager {
     constructor() {
@@ -114,6 +124,12 @@ class BuildManager {
 
     async generateContent(keywords) {
         try {
+            // Dynamic import untuk avoid circular dependencies
+            if (!SmartContentGenerator) {
+                const module = await import('./generate-content.js');
+                SmartContentGenerator = module.SmartContentGenerator;
+            }
+            
             const generator = new SmartContentGenerator();
             const result = await generator.generateForKeywords(keywords);
             
@@ -165,7 +181,10 @@ class BuildManager {
 
     async runPrerender() {
         try {
-            const { prerender } = require('./prerender');
+            if (!prerender) {
+                const module = await import('./prerender.js');
+                prerender = module.prerender;
+            }
             await prerender();
         } catch (error) {
             console.log('❌ Prerender failed:', error.message);
@@ -174,7 +193,10 @@ class BuildManager {
 
     async generateSitemap() {
         try {
-            const { generateSitemap } = require('./sitemap-generator');
+            if (!generateSitemap) {
+                const module = await import('./sitemap-generator.js');
+                generateSitemap = module.generateSitemap;
+            }
             await generateSitemap();
         } catch (error) {
             console.log('❌ Sitemap generation failed:', error.message);
@@ -183,7 +205,10 @@ class BuildManager {
 
     async generateRSS() {
         try {
-            const { generateRSS } = require('./rss-generator');
+            if (!generateRSS) {
+                const module = await import('./rss-generator.js');
+                generateRSS = module.generateRSS;
+            }
             await generateRSS();
         } catch (error) {
             console.log('❌ RSS generation failed:', error.message);
@@ -192,9 +217,9 @@ class BuildManager {
 }
 
 // Run if called directly
-if (require.main === module) {
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
     const manager = new BuildManager();
     manager.run().catch(console.error);
 }
 
-module.exports = { BuildManager };
+export { BuildManager };
