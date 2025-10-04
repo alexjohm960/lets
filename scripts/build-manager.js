@@ -15,23 +15,12 @@ class BuildManager {
   hasKeywords() {
     try {
       const keywordPath = join(process.cwd(), 'keyword.txt');
-      if (!existsSync(keywordPath)) {
-        console.log('📝 keyword.txt not found');
-        return false;
-      }
+      if (!existsSync(keywordPath)) return false;
       
       const content = readFileSync(keywordPath, 'utf-8');
       const keywords = content.split('\n').filter(k => k.trim());
-      
-      if (keywords.length === 0) {
-        console.log('📝 keyword.txt is empty');
-        return false;
-      }
-      
-      console.log(`📝 Found ${keywords.length} keywords in keyword.txt`);
-      return true;
+      return keywords.length > 0;
     } catch (error) {
-      console.log('❌ Error reading keyword.txt:', error.message);
       return false;
     }
   }
@@ -84,9 +73,88 @@ class BuildManager {
   }
   
   async build() {
-    console.log('🧠 Smart Build System Starting...');
+    console.log('🧠 Smart Build System with Batch Processing');
     console.log('==========================================');
     
+    // Check if batch processing is enabled (progress file exists)
+    const shouldUseBatch = this.hasKeywords() && existsSync(join(process.cwd(), '.batch-progress.json'));
+    
+    if (shouldUseBatch) {
+      console.log('🔄 Batch processing mode detected');
+      return await this.runBatchBuild();
+    } else {
+      console.log('🚀 Standard build mode');
+      return await this.runStandardBuild();
+    }
+  }
+  
+  async runBatchBuild() {
+    try {
+      // Import and run batch generator
+      const { BatchGenerator } = await import('./batch-generator.js');
+      const generator = new BatchGenerator();
+      
+      const result = await generator.runBatch();
+      
+      if (result.processed > 0 && result.shouldDeploy) {
+        console.log('------------------------------------------');
+        console.log('🏗️  Building site with new content...');
+        
+        // Build the site
+        execSync('vite build', { stdio: 'inherit' });
+        console.log('✅ Site build completed');
+        
+        // Run post-build tasks if we have articles
+        if (this.hasArticles()) {
+          console.log('📋 Running post-build tasks...');
+          
+          try {
+            execSync('node ./scripts/prerender.js', { stdio: 'inherit' });
+            console.log('✅ Prerender completed');
+          } catch (error) {
+            console.log('⚠️  Prerender failed:', error.message);
+          }
+          
+          try {
+            execSync('node ./scripts/generate-sitemap.js', { stdio: 'inherit' });
+            console.log('✅ Sitemap generated');
+          } catch (error) {
+            console.log('⚠️  Sitemap generation failed:', error.message);
+          }
+          
+          try {
+            execSync('node ./scripts/generate-rss.js', { stdio: 'inherit' });
+            console.log('✅ RSS generated');
+          } catch (error) {
+            console.log('⚠️  RSS generation failed:', error.message);
+          }
+        }
+        
+        console.log('==========================================');
+        console.log(`✅ Build completed! Processed ${result.processed} new articles`);
+        
+        const status = generator.getStatus();
+        if (status.pending > 0) {
+          console.log(`⏰ Next batch will run at: ${status.nextRun.toLocaleString()}`);
+          console.log(`📊 Remaining: ${status.pending} keywords (${status.totalBatches - status.currentBatch} batches)`);
+        } else {
+          console.log('🎉 All content generation completed!');
+        }
+        
+      } else {
+        console.log('⏭️  No new batch processed, skipping build');
+        console.log(`💡 Reason: ${result.reason}`);
+      }
+      
+    } catch (error) {
+      console.error('❌ Batch build failed:', error.message);
+      // Fallback to standard build
+      console.log('🔄 Falling back to standard build...');
+      await this.runStandardBuild();
+    }
+  }
+  
+  async runStandardBuild() {
     // Check if we have keywords
     const hasKeywords = this.hasKeywords();
     const hasArticles = this.hasArticles();
@@ -172,6 +240,5 @@ class BuildManager {
   }
 }
 
-// Run the build
 const manager = new BuildManager();
 manager.build().catch(console.error);
