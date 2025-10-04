@@ -107,8 +107,7 @@ class BuildManager {
         execSync('node ./scripts/generate-content.js', { stdio: 'inherit' });
         console.log('✅ Content generation completed');
       } catch (error) {
-        console.error('❌ Content generation failed:', error.message);
-        console.log('⚠️  Continuing with build...');
+        console.error('❌ Content generation failed, but continuing with build...');
       }
     } else if (hasKeywords) {
       console.log('🚫 No changes detected, skipping content generation');
