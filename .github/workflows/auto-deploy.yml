@@ -1,0 +1,40 @@
+name: Auto Batch Deploy
+on:
+  schedule:
+    - cron: '*/30 * * * *'  # Setiap 30 menit - sesuai BATCH_INTERVAL_MINUTES
+  workflow_dispatch:         # Juga bisa manual trigger dari GitHub UI
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+          
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+          cache: 'npm'
+          
+      - name: Install dependencies
+        run: npm ci
+      
+      - name: Build and Generate Content
+        run: npm run build
+        env:
+          VITE_SITE_URL: ${{ secrets.VITE_SITE_URL }}
+          VITE_SITE_NAME: ${{ secrets.VITE_SITE_NAME }}
+          # Tambahkan environment variables lainnya jika perlu
+          
+      - name: Deploy to Cloudflare Pages
+        uses: cloudflare/pages-action@1
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          projectName: lets-web-id  # Ganti dengan nama project Anda
+          directory: ./dist
+          branch: main
